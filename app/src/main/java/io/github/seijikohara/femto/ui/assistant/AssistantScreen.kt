@@ -39,15 +39,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Activity
-import com.composables.icons.lucide.BarChart3
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Mic
 import com.composables.icons.lucide.Navigation
-import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Search
 import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Volume2
-import com.composables.icons.lucide.VolumeX
 import io.github.seijikohara.femto.R
 import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 import io.github.seijikohara.femto.data.voice.VoiceState
