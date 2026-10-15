@@ -80,14 +80,21 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import android.content.Context
+import android.media.AudioManager
+import android.net.Uri
+import android.view.KeyEvent
+import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 
 class MainActivity : ComponentActivity() {
     private val appsRepository by lazy { AppsRepository(this) }
     private val displayPreferences by lazy { DisplayPreferences(this) }
     private val dockPreferences by lazy { DockPreferences(this) }
     private val fontRepository by lazy { FontRepository.get(this) }
+    private val assistantOpenTrigger = MutableStateFlow(false)
 
     // Cache the latest fullscreen choice so [onWindowFocusChanged] can re-hide the
     // system bars when focus returns from another Activity. The Compose
@@ -232,6 +239,13 @@ class MainActivity : ComponentActivity() {
                 // bottom-sheet overlays that slide up over it. The app launcher is a
                 // maximize panel inside the dashboard, not a sheet.
                 var showAssistant by rememberSaveable { mutableStateOf(false) }
+                val externalAssistantTrigger by assistantOpenTrigger.collectAsStateWithLifecycle()
+                LaunchedEffect(externalAssistantTrigger) {
+                    if (externalAssistantTrigger) {
+                        showAssistant = true
+                        assistantOpenTrigger.value = false
+                    }
+                }
                 var showSettings by rememberSaveable { mutableStateOf(false) }
                 // Whether the open settings sheet came from the update prompt's
                 // "Update": it opens on Updates and starts the one-tap update
@@ -326,6 +340,10 @@ class MainActivity : ComponentActivity() {
                             },
                             onSubmitQuery = { query ->
                                 submitVoiceQuery(query)
+                                showAssistant = false
+                            },
+                            onExecuteAction = { action ->
+                                handleCarAction(action)
                                 showAssistant = false
                             },
                             onDismiss = { showAssistant = false },
@@ -557,6 +575,47 @@ class MainActivity : ComponentActivity() {
                 .putExtra(SearchManager.QUERY, query)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         tryStartActivity(intent)
+    }
+
+    private fun handleCarAction(action: CarActionPayload) {
+        when (action.type) {
+            "NAVIGATE" -> {
+                action.query?.takeIf { it.isNotBlank() }?.let { query ->
+                    val uri = Uri.parse("geo:0,0?q=${Uri.encode(query)}")
+                    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    tryStartActivity(intent)
+                }
+            }
+            "CONTROL_MUSIC" -> {
+                val keyEventCode =
+                    when (action.musicCommand) {
+                        "play", "pause" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                        "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
+                        "prev" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                        else -> null
+                    }
+                keyEventCode?.let { code ->
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+                    audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+                }
+            }
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOICE_ASSIST || keyCode == KeyEvent.KEYCODE_ASSIST) {
+            assistantOpenTrigger.value = true
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == Intent.ACTION_ASSIST || intent.action == Intent.ACTION_VOICE_COMMAND) {
+            assistantOpenTrigger.value = true
+        }
     }
 
     private fun resolveIs24Hour(clock: ClockSetting): Boolean =
