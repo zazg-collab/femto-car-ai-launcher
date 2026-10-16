@@ -35,6 +35,7 @@ internal data class CarActionPayload(
     val type: String, // "NAVIGATE", "CONTROL_MUSIC"
     val query: String? = null,
     val musicCommand: String? = null,
+    val trackQuery: String? = null,
 )
 
 @Serializable

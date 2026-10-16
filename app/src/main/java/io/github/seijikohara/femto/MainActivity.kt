@@ -13,6 +13,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
 import android.text.format.DateFormat
 import android.util.Log
@@ -611,24 +612,54 @@ class MainActivity : ComponentActivity() {
         when (action.type) {
             "NAVIGATE" -> {
                 action.query?.takeIf { it.isNotBlank() }?.let { query ->
-                    val uri = Uri.parse("geo:0,0?q=${Uri.encode(query)}")
-                    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    tryStartActivity(intent)
+                    Log.i("MainActivity", "handleCarAction NAVIGATE: $query")
+                    val navUri = Uri.parse("google.navigation:q=${Uri.encode(query)}")
+                    val mapsIntent = Intent(Intent.ACTION_VIEW, navUri).apply {
+                        setPackage("com.google.android.apps.maps")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    if (packageManager.resolveActivity(mapsIntent, 0) != null) {
+                        tryStartActivity(mapsIntent)
+                    } else {
+                        val geoUri = Uri.parse("geo:0,0?q=${Uri.encode(query)}")
+                        val genericIntent = Intent(Intent.ACTION_VIEW, geoUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        tryStartActivity(genericIntent)
+                    }
                 }
             }
 
             "CONTROL_MUSIC" -> {
-                val keyEventCode =
-                    when (action.musicCommand) {
-                        "play", "pause" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
-                        "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
-                        "prev" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
-                        else -> null
+                val track = action.trackQuery?.takeIf { it.isNotBlank() }
+                if (track != null) {
+                    Log.i("MainActivity", "handleCarAction CONTROL_MUSIC play track: $track")
+                    val spotifyIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                        setPackage("com.spotify.music")
+                        putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+                        putExtra(SearchManager.QUERY, track)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
-                keyEventCode?.let { code ->
-                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                    audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
-                    audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+                    if (packageManager.resolveActivity(spotifyIntent, 0) != null) {
+                        tryStartActivity(spotifyIntent)
+                    } else {
+                        val genericMediaIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                            putExtra(SearchManager.QUERY, track)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        tryStartActivity(genericMediaIntent)
+                    }
+                } else {
+                    val keyEventCode =
+                        when (action.musicCommand) {
+                            "play", "pause" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                            "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
+                            "prev" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                            else -> null
+                        }
+                    keyEventCode?.let { code ->
+                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+                    }
                 }
             }
         }

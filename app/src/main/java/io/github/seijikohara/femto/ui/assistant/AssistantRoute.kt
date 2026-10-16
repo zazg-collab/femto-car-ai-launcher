@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,6 +24,7 @@ internal fun AssistantRoute(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val currentOnExecuteAction by rememberUpdatedState(onExecuteAction)
     val viewModel: AssistantViewModel =
         viewModel(factory = AssistantViewModelFactory(context.applicationContext as Application))
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -38,6 +40,14 @@ internal fun AssistantRoute(
         } else {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
+    }
+
+    // Auto-eksekusi aksi mobil (Navigasi / Kontrol Musik) secara hands-free tanpa perlu klik layar
+    LaunchedEffect(uiState.pendingAction) {
+        val action = uiState.pendingAction ?: return@LaunchedEffect
+        // Beri jeda 1.2 detik agar suara AI sempat mulai berbicara sebelum berpindah layar
+        kotlinx.coroutines.delay(1200)
+        currentOnExecuteAction(action)
     }
 
     val onMicTap: () -> Unit = {
