@@ -15,7 +15,8 @@ private const val TAG = "CarAssistantApi"
 
 internal class CarAssistantApi(
     private val client: OkHttpClient =
-        OkHttpClient.Builder()
+        OkHttpClient
+            .Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
@@ -31,7 +32,8 @@ internal class CarAssistantApi(
         withContext(ioDispatcher) {
             runCatching {
                 val req =
-                    Request.Builder()
+                    Request
+                        .Builder()
                         .url("$baseUrl/health")
                         .get()
                         .build()
@@ -48,7 +50,8 @@ internal class CarAssistantApi(
                 val body = jsonBody.toRequestBody(mediaTypeJson)
 
                 val req =
-                    Request.Builder()
+                    Request
+                        .Builder()
                         .url("$baseUrl/assistant")
                         .header("x-car-key", apiKey)
                         .post(body)

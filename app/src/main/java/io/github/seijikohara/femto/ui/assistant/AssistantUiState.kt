@@ -23,7 +23,9 @@ internal sealed interface AssistantAction {
     data object Reset : AssistantAction
 
     /** Send voice transcript query to SalesPintar Car Assistant */
-    data class SubmitQuery(val text: String) : AssistantAction
+    data class SubmitQuery(
+        val text: String,
+    ) : AssistantAction
 
     /** Stop voice playback */
     data object StopAudio : AssistantAction

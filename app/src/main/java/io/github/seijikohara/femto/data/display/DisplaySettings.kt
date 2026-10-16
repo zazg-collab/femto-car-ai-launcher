@@ -152,6 +152,9 @@ internal const val DEFAULT_GLASS_SHADOW_ENABLED = true
 internal const val DEFAULT_GLASS_SHADOW_INTENSITY = 40
 internal const val DEFAULT_GLASS_SHADOW_SIZE_DP = 8
 
+/** Default Google Maps API key provided by user. */
+internal const val DEFAULT_GOOGLE_MAPS_API_KEY = "AIzaSyD63ClTAtxI4b-FpEoBTii1mbXUX6gDtjY"
+
 /**
  * Default font-adjustment values, applied on top of the resolved font family by
  * `FemtoTheme`. [DEFAULT_FONT_BASE_SIZE_SP] (16 sp) matches the theme's rem-scale
@@ -319,7 +322,7 @@ internal data class DisplaySettings(
                 mapZoom = DEFAULT_MAP_ZOOM,
                 mapNorthUp = false,
                 mapMarkerPos = DEFAULT_MAP_MARKER_POS,
-                map3dBuildings = true,
+                map3dBuildings = false,
                 mapTerrain = false,
                 glassBlurRadius = DEFAULT_GLASS_BLUR_DP,
                 glassTintScale = DEFAULT_GLASS_TINT_SCALE,
@@ -336,12 +339,12 @@ internal data class DisplaySettings(
                 musicSpectrum = false,
                 musicShowAlbum = true,
                 musicShowArt = true,
-                mapBackend = MapBackend.OSM,
-                googleMapsApiKey = "",
+                mapBackend = MapBackend.GOOGLEMAPS,
+                googleMapsApiKey = DEFAULT_GOOGLE_MAPS_API_KEY,
                 googleMapsMapId = "",
                 googleMapsRendering = GoogleMapsRendering.AUTO,
                 googleMapsMapType = GoogleMapType.ROADMAP,
-                googleMapsTraffic = false,
+                googleMapsTraffic = true,
                 mapTileHost = "",
                 mapCustomStyleUrl = "",
             )

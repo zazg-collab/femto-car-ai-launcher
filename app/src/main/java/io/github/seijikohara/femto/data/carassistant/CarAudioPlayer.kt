@@ -38,16 +38,18 @@ internal class CarAudioPlayer(
     private fun initExoPlayer() {
         try {
             exoPlayer =
-                ExoPlayer.Builder(appContext)
+                ExoPlayer
+                    .Builder(appContext)
                     .setAudioAttributes(
-                        AudioAttributes.Builder()
+                        AudioAttributes
+                            .Builder()
                             .setUsage(C.USAGE_ASSISTANT)
                             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
                             .build(),
                         true, // Otomatis audio-ducking musik latar
-                    )
-                    .setHandleAudioBecomingNoisy(true)
-                    .build().apply {
+                    ).setHandleAudioBecomingNoisy(true)
+                    .build()
+                    .apply {
                         addListener(
                             object : Player.Listener {
                                 override fun onPlaybackStateChanged(playbackState: Int) {

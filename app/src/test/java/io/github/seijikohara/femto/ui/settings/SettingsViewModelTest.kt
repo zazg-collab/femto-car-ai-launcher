@@ -348,7 +348,7 @@ class SettingsViewModelTest {
     fun `ResetSection(MAP) resets its fields, leaves other sections alone`() =
         runTest(dispatcher) {
             val vm = viewModel()
-            vm.onAction(SettingsAction.SetMapBackend(MapBackend.GOOGLEMAPS))
+            vm.onAction(SettingsAction.SetMapBackend(MapBackend.OSM))
             vm.onAction(SettingsAction.SetMapZoom(11))
             vm.onAction(SettingsAction.SetShowMusic(false))
             advanceUntilIdle()
@@ -356,7 +356,7 @@ class SettingsViewModelTest {
             vm.onAction(SettingsAction.ResetSection(SettingsSectionId.MAP))
             advanceUntilIdle()
 
-            assertEquals(MapBackend.OSM, store.settings.first().mapBackend)
+            assertEquals(MapBackend.GOOGLEMAPS, store.settings.first().mapBackend)
             assertEquals(16, store.settings.first().mapZoom)
             // Panels is a different section — untouched by a Map reset.
             assertEquals(false, store.settings.first().showMusic)

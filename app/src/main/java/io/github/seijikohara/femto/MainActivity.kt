@@ -3,14 +3,20 @@ package io.github.seijikohara.femto
 import android.Manifest
 import android.app.SearchManager
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.format.DateFormat
 import android.util.Log
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.seijikohara.femto.data.apps.AppsRepository
+import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 import io.github.seijikohara.femto.data.common.hasBluetoothConnectPermission
 import io.github.seijikohara.femto.data.common.hasReadCalendarPermission
 import io.github.seijikohara.femto.data.common.hasReadPhoneStatePermission
@@ -76,19 +83,14 @@ import io.github.seijikohara.femto.ui.settings.SettingsDocument
 import io.github.seijikohara.femto.ui.settings.SettingsSheet
 import io.github.seijikohara.femto.ui.theme.FemtoTheme
 import io.github.seijikohara.femto.ui.theme.buildFontFamily
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import android.content.Context
-import android.media.AudioManager
-import android.net.Uri
-import android.view.KeyEvent
-import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 
 class MainActivity : ComponentActivity() {
     private val appsRepository by lazy { AppsRepository(this) }
@@ -99,6 +101,17 @@ class MainActivity : ComponentActivity() {
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
+
+    private val carVoiceReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                context: Context?,
+                intent: Intent?,
+            ) {
+                Log.i("MainActivity", "Dynamic car voice broadcast received: action=${intent?.action}")
+                assistantOpenEvents.tryEmit(Unit)
+            }
+        }
 
     // Cache the latest fullscreen choice so [onWindowFocusChanged] can re-hide the
     // system bars when focus returns from another Activity. The Compose
@@ -148,6 +161,22 @@ class MainActivity : ComponentActivity() {
         requestRuntimePermissions()
         observeBackgroundRanging()
         handleAssistIntent(intent)
+        val voiceFilter =
+            IntentFilter().apply {
+                addAction(Intent.ACTION_VOICE_COMMAND)
+                addAction(Intent.ACTION_ASSIST)
+                addAction("android.intent.action.VOICE_ASSIST")
+                addAction("android.speech.action.VOICE_SEARCH_HANDS_FREE")
+                addAction("android.intent.action.SEARCH_LONG_PRESS")
+                addAction("android.media.action.VOICE_COMMAND")
+                priority = 1000
+            }
+        ContextCompat.registerReceiver(
+            this,
+            carVoiceReceiver,
+            voiceFilter,
+            ContextCompat.RECEIVER_EXPORTED,
+        )
         // Keep the cached fullscreen choice in sync so onWindowFocusChanged can
         // re-hide the bars after focus returns from another Activity.
         lifecycleScope.launch {
@@ -289,7 +318,9 @@ class MainActivity : ComponentActivity() {
                             buildings3d = settings.map3dBuildings,
                             terrain = settings.mapTerrain,
                             backend = settings.mapBackend,
-                            googleMapsApiKey = settings.googleMapsApiKey,
+                            googleMapsApiKey = settings.googleMapsApiKey.ifBlank {
+                                io.github.seijikohara.femto.data.display.DEFAULT_GOOGLE_MAPS_API_KEY
+                            },
                             googleMapsMapId = settings.googleMapsMapId,
                             googleMapsRendering = settings.googleMapsRendering,
                             googleMapsMapType = settings.googleMapsMapType,
@@ -585,6 +616,7 @@ class MainActivity : ComponentActivity() {
                     tryStartActivity(intent)
                 }
             }
+
             "CONTROL_MUSIC" -> {
                 val keyEventCode =
                     when (action.musicCommand) {
@@ -602,13 +634,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(carVoiceReceiver)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to unregister carVoiceReceiver", e)
+        }
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        Log.d("MainActivity", "dispatchKeyEvent: action=${event.action}, keyCode=${event.keyCode}")
         when (event.keyCode) {
             KeyEvent.KEYCODE_VOICE_ASSIST,
             KeyEvent.KEYCODE_ASSIST,
             KeyEvent.KEYCODE_SEARCH,
             KeyEvent.KEYCODE_HEADSETHOOK,
-            KeyEvent.KEYCODE_CALL -> {
+            KeyEvent.KEYCODE_CALL,
+            KeyEvent.KEYCODE_MEDIA_RECORD,
+            KeyEvent.KEYCODE_MUTE,
+            KeyEvent.KEYCODE_F1, KeyEvent.KEYCODE_F2, KeyEvent.KEYCODE_F3,
+            KeyEvent.KEYCODE_F4, KeyEvent.KEYCODE_F5, KeyEvent.KEYCODE_F6,
+            KeyEvent.KEYCODE_F7, KeyEvent.KEYCODE_F8, KeyEvent.KEYCODE_F9,
+            KeyEvent.KEYCODE_F10, KeyEvent.KEYCODE_F11, KeyEvent.KEYCODE_F12,
+            -> {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     Log.i("MainActivity", "Voice assist key intercepted in dispatchKeyEvent: keyCode=${event.keyCode}")
                     assistantOpenEvents.tryEmit(Unit)
@@ -619,15 +668,27 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
-            keyCode == KeyEvent.KEYCODE_ASSIST ||
-            keyCode == KeyEvent.KEYCODE_SEARCH ||
-            keyCode == KeyEvent.KEYCODE_HEADSETHOOK ||
-            keyCode == KeyEvent.KEYCODE_CALL) {
-            Log.i("MainActivity", "Voice assist key intercepted in onKeyDown: keyCode=$keyCode")
-            assistantOpenEvents.tryEmit(Unit)
-            return true
+    override fun onKeyDown(
+        keyCode: Int,
+        event: KeyEvent?,
+    ): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_VOICE_ASSIST,
+            KeyEvent.KEYCODE_ASSIST,
+            KeyEvent.KEYCODE_SEARCH,
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_CALL,
+            KeyEvent.KEYCODE_MEDIA_RECORD,
+            KeyEvent.KEYCODE_MUTE,
+            KeyEvent.KEYCODE_F1, KeyEvent.KEYCODE_F2, KeyEvent.KEYCODE_F3,
+            KeyEvent.KEYCODE_F4, KeyEvent.KEYCODE_F5, KeyEvent.KEYCODE_F6,
+            KeyEvent.KEYCODE_F7, KeyEvent.KEYCODE_F8, KeyEvent.KEYCODE_F9,
+            KeyEvent.KEYCODE_F10, KeyEvent.KEYCODE_F11, KeyEvent.KEYCODE_F12,
+            -> {
+                Log.i("MainActivity", "Voice assist key intercepted in onKeyDown: keyCode=$keyCode")
+                assistantOpenEvents.tryEmit(Unit)
+                return true
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -641,11 +702,15 @@ class MainActivity : ComponentActivity() {
     private fun handleAssistIntent(intent: Intent?) {
         if (intent == null) return
         val action = intent.action
+        Log.i("MainActivity", "handleAssistIntent checking: action=$action, categories=${intent.categories}")
         if (action == Intent.ACTION_ASSIST ||
             action == Intent.ACTION_VOICE_COMMAND ||
             action == "android.intent.action.VOICE_ASSIST" ||
-            action == Intent.ACTION_SEARCH_LONG_PRESS) {
-            Log.i("MainActivity", "Assist intent received: $action")
+            action == "android.speech.action.VOICE_SEARCH_HANDS_FREE" ||
+            action == "android.media.action.VOICE_COMMAND" ||
+            action == Intent.ACTION_SEARCH_LONG_PRESS
+        ) {
+            Log.i("MainActivity", "Assist intent matched: $action")
             assistantOpenEvents.tryEmit(Unit)
         }
     }

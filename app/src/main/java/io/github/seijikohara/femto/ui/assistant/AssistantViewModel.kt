@@ -71,7 +71,11 @@ internal class AssistantViewModel(
                 pendingAction.value = null
                 recognizer.start()
             }
-            AssistantAction.StopListening -> recognizer.stop()
+
+            AssistantAction.StopListening -> {
+                recognizer.stop()
+            }
+
             AssistantAction.Reset -> {
                 carRepository.stopAudio()
                 replyText.value = ""
@@ -81,8 +85,14 @@ internal class AssistantViewModel(
                 }
                 recognizer.reset()
             }
-            is AssistantAction.SubmitQuery -> queryAssistant(action.text)
-            AssistantAction.StopAudio -> carRepository.stopAudio()
+
+            is AssistantAction.SubmitQuery -> {
+                queryAssistant(action.text)
+            }
+
+            AssistantAction.StopAudio -> {
+                carRepository.stopAudio()
+            }
         }
     }
 

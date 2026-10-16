@@ -75,27 +75,24 @@ class DisplayPreferencesTest {
             // Clear any state left by a test that ran earlier in the same process.
             store.resetToDefaults()
 
-            // With no backend key written the read path falls back to OSM; a
-            // pre-rename store resolves to OSM purely because map_backend is absent.
-            assertEquals(MapBackend.OSM, store.settings.first().mapBackend)
-
-            store.setMapBackend(MapBackend.GOOGLEMAPS)
+            // With no backend key written the read path falls back to the default backend (GOOGLEMAPS).
             assertEquals(MapBackend.GOOGLEMAPS, store.settings.first().mapBackend)
+
+            store.setMapBackend(MapBackend.OSM)
+            assertEquals(MapBackend.OSM, store.settings.first().mapBackend)
         }
 
     // A store written before the Mapbox backend was removed may still carry
-    // map_backend=MAPBOX. The read path decodes an unknown name as the default,
-    // so such a store comes up on OSM regardless of the one-shot rewrite
-    // (RetiredMapboxKeysMigrationTest covers that migration on its own).
+    // map_backend=MAPBOX. The read path decodes an unknown name as the default.
     @Test
-    fun `a persisted MAPBOX backend reads back as OSM`() =
+    fun `a persisted MAPBOX backend reads back as default`() =
         runTest {
             val context = ApplicationProvider.getApplicationContext<Context>()
             val store = DisplayPreferences(context)
             store.resetToDefaults()
 
             context.displayDataStore.edit { it[DisplayPreferences.MAP_BACKEND_KEY] = "MAPBOX" }
-            assertEquals(MapBackend.OSM, store.settings.first().mapBackend)
+            assertEquals(MapBackend.GOOGLEMAPS, store.settings.first().mapBackend)
         }
 
     @Test
