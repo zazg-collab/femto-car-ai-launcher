@@ -311,7 +311,7 @@ internal data class DisplaySettings(
                 motionTier = MotionTier.STANDARD,
                 orientation = OrientationSetting.AUTO,
                 keepScreenOn = true,
-                assistantLaunch = AssistantLaunchSetting.SYSTEM,
+                assistantLaunch = AssistantLaunchSetting.IN_APP,
                 mapStyle = MapStyleSetting.AUTO,
                 mapSchemeLight = MapColorScheme.ACCENT,
                 mapSchemeDark = MapColorScheme.ACCENT,

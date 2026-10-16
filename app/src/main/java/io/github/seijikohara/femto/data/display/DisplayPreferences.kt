@@ -179,7 +179,7 @@ internal class DisplayPreferences(
                     motionTier = prefs[MOTION_TIER_KEY].toEnumOr(MotionTier.STANDARD),
                     orientation = prefs[ORIENTATION_KEY].toEnumOr(OrientationSetting.AUTO),
                     keepScreenOn = prefs[KEEP_SCREEN_ON_KEY] ?: true,
-                    assistantLaunch = prefs[ASSISTANT_LAUNCH_KEY].toEnumOr(AssistantLaunchSetting.SYSTEM),
+                    assistantLaunch = prefs[ASSISTANT_LAUNCH_KEY].toEnumOr(AssistantLaunchSetting.IN_APP),
                     mapStyle = prefs[MAP_STYLE_KEY].toEnumOr(MapStyleSetting.AUTO),
                     mapSchemeLight = prefs[MAP_SCHEME_LIGHT_KEY].toEnumOr(MapColorScheme.ACCENT),
                     mapSchemeDark = prefs[MAP_SCHEME_DARK_KEY].toEnumOr(MapColorScheme.ACCENT),

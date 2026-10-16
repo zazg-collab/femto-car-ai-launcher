@@ -80,12 +80,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import android.content.Context
 import android.media.AudioManager
 import android.net.Uri
+import android.util.Log
 import android.view.KeyEvent
 import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 
@@ -94,7 +96,10 @@ class MainActivity : ComponentActivity() {
     private val displayPreferences by lazy { DisplayPreferences(this) }
     private val dockPreferences by lazy { DockPreferences(this) }
     private val fontRepository by lazy { FontRepository.get(this) }
-    private val assistantOpenTrigger = MutableStateFlow(false)
+    private val assistantOpenEvents = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     // Cache the latest fullscreen choice so [onWindowFocusChanged] can re-hide the
     // system bars when focus returns from another Activity. The Compose
@@ -143,6 +148,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         requestRuntimePermissions()
         observeBackgroundRanging()
+        handleAssistIntent(intent)
         // Keep the cached fullscreen choice in sync so onWindowFocusChanged can
         // re-hide the bars after focus returns from another Activity.
         lifecycleScope.launch {
@@ -239,11 +245,9 @@ class MainActivity : ComponentActivity() {
                 // bottom-sheet overlays that slide up over it. The app launcher is a
                 // maximize panel inside the dashboard, not a sheet.
                 var showAssistant by rememberSaveable { mutableStateOf(false) }
-                val externalAssistantTrigger by assistantOpenTrigger.collectAsStateWithLifecycle()
-                LaunchedEffect(externalAssistantTrigger) {
-                    if (externalAssistantTrigger) {
+                LaunchedEffect(Unit) {
+                    assistantOpenEvents.collect {
                         showAssistant = true
-                        assistantOpenTrigger.value = false
                     }
                 }
                 var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -501,11 +505,7 @@ class MainActivity : ComponentActivity() {
             }
 
             HomeEvent.OpenAssistant -> {
-                // SYSTEM hands off to the default assistant's overlay; the sheet
-                // is the fallback when none resolves (e.g. no assistant installed).
-                if (display.assistantLaunch != AssistantLaunchSetting.SYSTEM || !launchSystemAssistant()) {
-                    setShowAssistant(true)
-                }
+                setShowAssistant(true)
             }
 
             is HomeEvent.MoveDockNav -> {
@@ -603,9 +603,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_VOICE_ASSIST,
+            KeyEvent.KEYCODE_ASSIST,
+            KeyEvent.KEYCODE_SEARCH,
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_CALL -> {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    Log.i("MainActivity", "Voice assist key intercepted in dispatchKeyEvent: keyCode=${event.keyCode}")
+                    assistantOpenEvents.tryEmit(Unit)
+                }
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOICE_ASSIST || keyCode == KeyEvent.KEYCODE_ASSIST) {
-            assistantOpenTrigger.value = true
+        if (keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
+            keyCode == KeyEvent.KEYCODE_ASSIST ||
+            keyCode == KeyEvent.KEYCODE_SEARCH ||
+            keyCode == KeyEvent.KEYCODE_HEADSETHOOK ||
+            keyCode == KeyEvent.KEYCODE_CALL) {
+            Log.i("MainActivity", "Voice assist key intercepted in onKeyDown: keyCode=$keyCode")
+            assistantOpenEvents.tryEmit(Unit)
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -613,8 +635,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == Intent.ACTION_ASSIST || intent.action == Intent.ACTION_VOICE_COMMAND) {
-            assistantOpenTrigger.value = true
+        setIntent(intent)
+        handleAssistIntent(intent)
+    }
+
+    private fun handleAssistIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        if (action == Intent.ACTION_ASSIST ||
+            action == Intent.ACTION_VOICE_COMMAND ||
+            action == "android.intent.action.VOICE_ASSIST" ||
+            action == Intent.ACTION_SEARCH_LONG_PRESS) {
+            Log.i("MainActivity", "Assist intent received: $action")
+            assistantOpenEvents.tryEmit(Unit)
         }
     }
 
