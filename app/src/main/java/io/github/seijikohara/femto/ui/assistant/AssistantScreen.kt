@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -68,22 +69,22 @@ internal fun AssistantScreen(
     onMicTap: () -> Unit,
     onReset: () -> Unit,
     onSubmitQuery: (String) -> Unit,
-    onStopAudio: () -> Unit,
-    onExecuteAction: (CarActionPayload) -> Unit,
+    onStopAudio: () -> Unit = {},
+    onExecuteAction: (CarActionPayload) -> Unit = {},
     onLaunchOption: (AssistantOption) -> Unit,
     modifier: Modifier = Modifier,
 ) = Surface(
-    modifier = modifier.fillMaxWidth(),
+    modifier = modifier.fillMaxSize(),
     color = MaterialTheme.colorScheme.background,
 ) {
     val scrollState = rememberScrollState()
     Column(
         modifier =
             Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(FemtoDimens.ScreenPadding)
-                .padding(bottom = 32.dp),
+                .padding(bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // 1. Header with Persona Badge
@@ -205,6 +206,14 @@ private fun CarVoiceSurface(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
+    } else if (uiState.voice is VoiceState.Listening) {
+        val listeningState = uiState.voice
+        Text(
+            text = listeningState.partial.ifBlank { "Mendengarkan suara Bossfren..." },
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp, fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center,
+        )
     } else if (uiState.replyText.isNotBlank()) {
         // AI Reply Bubble (Large glanceable text for automotive distance)
         Box(
@@ -269,7 +278,6 @@ private fun CarVoiceSurface(
     } else {
         val prompt =
             when (val v = uiState.voice) {
-                is VoiceState.Listening -> v.partial.ifBlank { "Mendengarkan suara Bossfren..." }
                 is VoiceState.Result -> v.text
                 is VoiceState.Failed -> stringResource(v.messageRes)
                 else -> "Tekan mic atau tombol setir Mazda untuk mulai berbicara"

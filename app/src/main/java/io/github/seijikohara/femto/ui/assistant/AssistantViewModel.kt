@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 import io.github.seijikohara.femto.data.carassistant.CarAssistantRepository
+import io.github.seijikohara.femto.data.carassistant.ConversationHistoryItem
 import io.github.seijikohara.femto.data.common.WhileUiSubscribed
 import io.github.seijikohara.femto.data.voice.VoiceRecognizer
 import io.github.seijikohara.femto.data.voice.VoiceState
@@ -26,6 +27,7 @@ internal class AssistantViewModel(
     private val replyText = MutableStateFlow("")
     private val personaUsed = MutableStateFlow("hybrid")
     private val pendingAction = MutableStateFlow<CarActionPayload?>(null)
+    private val conversationHistory = mutableListOf<ConversationHistoryItem>()
 
     val uiState: StateFlow<AssistantUiState> =
         combine(
@@ -55,7 +57,7 @@ internal class AssistantViewModel(
         // Auto-query ke Bernadya/Raisha saat pengemudi selesai berbicara
         viewModelScope.launch {
             recognizer.state.collect { state ->
-                if (state is VoiceState.Result && state.text.isNotBlank() && !isThinking.value && replyText.value.isEmpty()) {
+                if (state is VoiceState.Result && state.text.isNotBlank() && !isThinking.value) {
                     queryAssistant(state.text)
                 }
             }
@@ -66,7 +68,6 @@ internal class AssistantViewModel(
         when (action) {
             AssistantAction.StartListening -> {
                 carRepository.stopAudio()
-                replyText.value = ""
                 pendingAction.value = null
                 recognizer.start()
             }
@@ -75,6 +76,9 @@ internal class AssistantViewModel(
                 carRepository.stopAudio()
                 replyText.value = ""
                 pendingAction.value = null
+                synchronized(conversationHistory) {
+                    conversationHistory.clear()
+                }
                 recognizer.reset()
             }
             is AssistantAction.SubmitQuery -> queryAssistant(action.text)
@@ -89,9 +93,12 @@ internal class AssistantViewModel(
             replyText.value = ""
             pendingAction.value = null
 
+            val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
+
             val res = carRepository.query(
                 message = userPrompt,
                 personaPreference = "auto",
+                conversationHistory = historySnapshot,
             )
 
             isThinking.value = false
@@ -99,6 +106,14 @@ internal class AssistantViewModel(
                 replyText.value = res.text
                 personaUsed.value = res.personaUsed
                 pendingAction.value = res.action
+
+                synchronized(conversationHistory) {
+                    conversationHistory.add(ConversationHistoryItem(role = "user", content = userPrompt))
+                    conversationHistory.add(ConversationHistoryItem(role = "assistant", content = res.text))
+                    while (conversationHistory.size > 16) {
+                        conversationHistory.removeAt(0)
+                    }
+                }
             } else {
                 replyText.value = "Maaf Bossfren, belum bisa terhubung ke server SalesPintar."
             }

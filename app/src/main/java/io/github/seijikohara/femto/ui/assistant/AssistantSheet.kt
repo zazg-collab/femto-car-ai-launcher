@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 import io.github.seijikohara.femto.ui.common.ImmersiveSheetEffect
 import io.github.seijikohara.femto.ui.common.rememberSheetHeight
@@ -22,10 +24,12 @@ internal fun AssistantSheet(
     fullscreen: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    // Gunakan 0.88f (88% tinggi layar) untuk visibilitas optimal di layar landscape Mazda CX-5
-    val sheetHeight = rememberSheetHeight(0.88f)
+    // Gunakan 0.92f dan skipPartiallyExpanded agar langsung terbuka penuh dan tidak terpotong di layar Mazda CX-5
+    val sheetHeight = rememberSheetHeight(0.92f)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetMaxWidth = Dp.Unspecified,
         modifier = modifier,
     ) {
         ImmersiveSheetEffect(fullscreen)

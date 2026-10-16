@@ -13,6 +13,7 @@ internal class CarAssistantRepository(
     suspend fun query(
         message: String,
         personaPreference: String = "auto",
+        conversationHistory: List<ConversationHistoryItem>? = null,
         speedKmh: Double? = null,
         currentCity: String? = null,
     ): CarAssistantResponse? {
@@ -27,6 +28,7 @@ internal class CarAssistantRepository(
             CarAssistantRequest(
                 message = message,
                 personaPreference = personaPreference,
+                conversationHistory = conversationHistory,
                 driverContext = driverContext,
             )
 

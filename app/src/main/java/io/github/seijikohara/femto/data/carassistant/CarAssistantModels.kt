@@ -3,6 +3,12 @@ package io.github.seijikohara.femto.data.carassistant
 import kotlinx.serialization.Serializable
 
 @Serializable
+internal data class ConversationHistoryItem(
+    val role: String, // "user" or "assistant"
+    val content: String,
+)
+
+@Serializable
 internal data class DriverLocation(
     val lat: Double,
     val lng: Double,
@@ -20,6 +26,7 @@ internal data class DriverContext(
 internal data class CarAssistantRequest(
     val message: String,
     val personaPreference: String = "auto",
+    val conversationHistory: List<ConversationHistoryItem>? = null,
     val driverContext: DriverContext? = null,
 )
 
