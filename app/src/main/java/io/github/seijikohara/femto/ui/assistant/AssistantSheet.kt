@@ -22,7 +22,8 @@ internal fun AssistantSheet(
     fullscreen: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val sheetHeight = rememberSheetHeight(FemtoDimens.DrawerSheetHeightFraction)
+    // Gunakan 0.88f (88% tinggi layar) untuk visibilitas optimal di layar landscape Mazda CX-5
+    val sheetHeight = rememberSheetHeight(0.88f)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         modifier = modifier,

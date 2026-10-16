@@ -100,11 +100,18 @@ internal class CarAudioPlayer(
     ) {
         stop()
 
-        // 1. Prioritas Utama: Pemutaran Suara Cartesia via ExoPlayer
+        // 1. Prioritas Utama: Pemutaran Suara Natural via ExoPlayer (Cartesia / Gemini TTS)
         if (!audioBase64.isNullOrBlank()) {
             try {
                 val audioBytes = Base64.decode(audioBase64, Base64.DEFAULT)
-                val tempFile = File(appContext.cacheDir, "car_assistant_reply.mp3")
+                val isWav =
+                    audioBytes.size >= 4 &&
+                        audioBytes[0] == 'R'.code.toByte() &&
+                        audioBytes[1] == 'I'.code.toByte() &&
+                        audioBytes[2] == 'F'.code.toByte() &&
+                        audioBytes[3] == 'F'.code.toByte()
+                val extension = if (isWav) "wav" else "mp3"
+                val tempFile = File(appContext.cacheDir, "car_assistant_reply.$extension")
                 tempFile.writeBytes(audioBytes)
 
                 val player = exoPlayer ?: return
@@ -114,15 +121,17 @@ internal class CarAudioPlayer(
                 _isPlaying.value = true
                 return
             } catch (e: Exception) {
-                Log.w(TAG, "Gagal memutar audio Cartesia base64: ${e.message}. Mencoba fallback ke TTS Android.")
+                Log.w(TAG, "Gagal memutar audio assistant base64: ${e.message}. Mencoba fallback ke TTS Android.")
             }
         }
 
-        // 2. Fallback: On-Device TTS Android (Bahasa Indonesia)
+        // 2. Fallback: On-Device TTS Android (Bahasa Indonesia) dengan Silence Lead-in Buffer
         if (isTtsReady && textToSpeech != null && fallbackText.isNotBlank()) {
             try {
                 _isPlaying.value = true
-                textToSpeech?.speak(fallbackText, TextToSpeech.QUEUE_FLUSH, null, "car_assistant_voice")
+                // Lead-in 350ms silence agar car amplifier Mazda CX-5 sempat unmute & ducking sebelum kata pertama diucapkan
+                textToSpeech?.playSilentUtterance(350L, TextToSpeech.QUEUE_FLUSH, "car_assistant_silence")
+                textToSpeech?.speak(fallbackText, TextToSpeech.QUEUE_ADD, null, "car_assistant_voice")
             } catch (e: Exception) {
                 Log.e(TAG, "Gagal memanggil TTS fallback: ${e.message}", e)
                 _isPlaying.value = false
