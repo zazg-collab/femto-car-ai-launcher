@@ -87,7 +87,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import android.content.Context
 import android.media.AudioManager
 import android.net.Uri
-import android.util.Log
 import android.view.KeyEvent
 import io.github.seijikohara.femto.data.carassistant.CarActionPayload
 
