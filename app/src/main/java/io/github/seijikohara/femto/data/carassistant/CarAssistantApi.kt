@@ -17,8 +17,10 @@ internal class CarAssistantApi(
     private val client: OkHttpClient =
         OkHttpClient
             .Builder()
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .callTimeout(30, TimeUnit.SECONDS)
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .build(),
     private val baseUrl: String = "https://novybot.aydaza.my.id/api/v1/car",

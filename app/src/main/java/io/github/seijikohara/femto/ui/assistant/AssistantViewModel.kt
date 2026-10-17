@@ -1,6 +1,7 @@
 package io.github.seijikohara.femto.ui.assistant
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal class AssistantViewModel(
     application: Application,
@@ -105,11 +107,19 @@ internal class AssistantViewModel(
 
             val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
 
-            val res = carRepository.query(
-                message = userPrompt,
-                personaPreference = "auto",
-                conversationHistory = historySnapshot,
-            )
+            val res =
+                withTimeoutOrNull(35_000L) {
+                    try {
+                        carRepository.query(
+                            message = userPrompt,
+                            personaPreference = "auto",
+                            conversationHistory = historySnapshot,
+                        )
+                    } catch (e: Exception) {
+                        Log.e("AssistantViewModel", "Car assistant query error: ${e.message}", e)
+                        null
+                    }
+                }
 
             isThinking.value = false
             if (res != null) {
