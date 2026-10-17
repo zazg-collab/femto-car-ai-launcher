@@ -1,6 +1,9 @@
 package io.github.seijikohara.femto.data.carassistant
 
 import android.content.Context
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.Uri
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -23,8 +26,11 @@ internal class CarAudioPlayer(
     private val context: Context,
 ) {
     private val appContext = context.applicationContext
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var exoPlayer: ExoPlayer? = null
     private var textToSpeech: TextToSpeech? = null
+    private var toneGenerator: ToneGenerator? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
     private var isTtsReady = false
 
     private val _isPlaying = MutableStateFlow(false)
@@ -46,7 +52,7 @@ internal class CarAudioPlayer(
                             .setUsage(C.USAGE_ASSISTANT)
                             .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
                             .build(),
-                        true, // Otomatis audio-ducking musik latar
+                        false, // Explicit audio-ducking via requestDuckingFocus()
                     ).setHandleAudioBecomingNoisy(true)
                     .build()
                     .apply {
@@ -55,11 +61,15 @@ internal class CarAudioPlayer(
                                 override fun onPlaybackStateChanged(playbackState: Int) {
                                     if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
                                         _isPlaying.value = false
+                                        abandonDuckingFocus()
                                     }
                                 }
 
                                 override fun onIsPlayingChanged(playing: Boolean) {
                                     _isPlaying.value = playing
+                                    if (!playing && playbackState != Player.STATE_BUFFERING) {
+                                        abandonDuckingFocus()
+                                    }
                                 }
                             },
                         )
@@ -70,28 +80,84 @@ internal class CarAudioPlayer(
     }
 
     private fun initTextToSpeech() {
-        textToSpeech = TextToSpeech(appContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                val result = textToSpeech?.setLanguage(Locale("id", "ID"))
-                isTtsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
-                textToSpeech?.setOnUtteranceProgressListener(
-                    object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) {
-                            _isPlaying.value = true
-                        }
+        textToSpeech =
+            TextToSpeech(appContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    val result = textToSpeech?.setLanguage(Locale("id", "ID"))
+                    isTtsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
 
-                        override fun onDone(utteranceId: String?) {
-                            _isPlaying.value = false
-                        }
+                    // Konfigurasi audio attributes USAGE_ASSISTANT agar TTS tidak meminta exclusive focus yang mem-pause musik
+                    val ttsAudioAttributes =
+                        android.media.AudioAttributes
+                            .Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    textToSpeech?.setAudioAttributes(ttsAudioAttributes)
 
-                        override fun onError(utteranceId: String?) {
-                            _isPlaying.value = false
-                        }
-                    },
-                )
-            } else {
-                Log.w(TAG, "TextToSpeech init status not success: $status")
+                    textToSpeech?.setOnUtteranceProgressListener(
+                        object : UtteranceProgressListener() {
+                            override fun onStart(utteranceId: String?) {
+                                _isPlaying.value = true
+                            }
+
+                            override fun onDone(utteranceId: String?) {
+                                _isPlaying.value = false
+                                abandonDuckingFocus()
+                            }
+
+                            override fun onError(utteranceId: String?) {
+                                _isPlaying.value = false
+                                abandonDuckingFocus()
+                            }
+                        },
+                    )
+                } else {
+                    Log.w(TAG, "TextToSpeech init status not success: $status")
+                }
             }
+    }
+
+    private fun requestDuckingFocus() {
+        try {
+            if (audioFocusRequest == null) {
+                val focusAttributes =
+                    android.media.AudioAttributes
+                        .Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                audioFocusRequest =
+                    AudioFocusRequest
+                        .Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                        .setAudioAttributes(focusAttributes)
+                        .setAcceptsDelayedFocusGain(false)
+                        .setOnAudioFocusChangeListener { /* no-op */ }
+                        .build()
+            }
+            audioFocusRequest?.let { audioManager.requestAudioFocus(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal request audio focus ducking: ${e.message}")
+        }
+    }
+
+    private fun abandonDuckingFocus() {
+        try {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal abandon audio focus ducking: ${e.message}")
+        }
+    }
+
+    private fun playWakeupChime() {
+        try {
+            if (toneGenerator == null) {
+                toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 65)
+            }
+            // Nada earcon singkat (120ms) untuk membangunkan DSP Mazda CX-5 secara instan
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal memutar earcon chime: ${e.message}")
         }
     }
 
@@ -102,7 +168,13 @@ internal class CarAudioPlayer(
     ) {
         stop()
 
-        // 1. Prioritas Utama: Pemutaran Suara Natural via ExoPlayer (Cartesia / Gemini TTS)
+        // 1. Minta Audio Focus Ducking: Spotify otomatis meredupkan volume (ducking ~20%), tidak dipause/distop
+        requestDuckingFocus()
+
+        // 2. Mainkan Earcon Chime: Bangunkan amplifier Mazda CX-5 (<120ms) agar kata pertama tidak terpotong
+        playWakeupChime()
+
+        // 3. Prioritas Utama: Pemutaran Suara Natural via ExoPlayer (Cartesia / Gemini TTS)
         if (!audioBase64.isNullOrBlank()) {
             try {
                 val audioBytes = Base64.decode(audioBase64, Base64.DEFAULT)
@@ -127,19 +199,19 @@ internal class CarAudioPlayer(
             }
         }
 
-        // 2. Fallback: On-Device TTS Android (Bahasa Indonesia) dengan Silence Lead-in Buffer
+        // 4. Fallback: On-Device TTS Android (Bahasa Indonesia) tanpa dead-silence delay
         if (isTtsReady && textToSpeech != null && fallbackText.isNotBlank()) {
             try {
                 _isPlaying.value = true
-                // Lead-in 350ms silence agar car amplifier Mazda CX-5 sempat unmute & ducking sebelum kata pertama diucapkan
-                textToSpeech?.playSilentUtterance(350L, TextToSpeech.QUEUE_FLUSH, "car_assistant_silence")
-                textToSpeech?.speak(fallbackText, TextToSpeech.QUEUE_ADD, null, "car_assistant_voice")
+                textToSpeech?.speak(fallbackText, TextToSpeech.QUEUE_FLUSH, null, "car_assistant_voice")
             } catch (e: Exception) {
                 Log.e(TAG, "Gagal memanggil TTS fallback: ${e.message}", e)
                 _isPlaying.value = false
+                abandonDuckingFocus()
             }
         } else {
             _isPlaying.value = false
+            abandonDuckingFocus()
         }
     }
 
@@ -152,6 +224,7 @@ internal class CarAudioPlayer(
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping audio: ${e.message}")
         }
+        abandonDuckingFocus()
         _isPlaying.value = false
     }
 
@@ -161,5 +234,7 @@ internal class CarAudioPlayer(
         exoPlayer = null
         textToSpeech?.shutdown()
         textToSpeech = null
+        toneGenerator?.release()
+        toneGenerator = null
     }
 }

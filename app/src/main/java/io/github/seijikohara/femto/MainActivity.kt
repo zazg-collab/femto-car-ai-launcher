@@ -610,17 +610,60 @@ class MainActivity : ComponentActivity() {
 
     private fun handleCarAction(action: CarActionPayload) {
         when (action.type) {
+            "OPEN_APP" -> {
+                val app = action.appName?.lowercase()?.trim() ?: "spotify"
+                Log.i("MainActivity", "handleCarAction OPEN_APP: $app")
+                val packageName =
+                    when (app) {
+                        "spotify" -> {
+                            "com.spotify.music"
+                        }
+
+                        "google_maps", "maps" -> {
+                            "com.google.android.apps.maps"
+                        }
+
+                        "waze" -> {
+                            "com.waze"
+                        }
+
+                        "youtube" -> {
+                            "com.google.android.youtube"
+                        }
+
+                        "settings" -> {
+                            null
+                        }
+
+                        else -> {
+                            "com.spotify.music"
+                        }
+                    }
+
+                if (packageName != null) {
+                    val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        tryStartActivity(launchIntent)
+                    } else {
+                        Log.w("MainActivity", "Launch intent not found for package: $packageName")
+                    }
+                } else {
+                    openSystemSettings()
+                }
+            }
+
             "NAVIGATE" -> {
                 action.query?.takeIf { it.isNotBlank() }?.let { query ->
                     Log.i("MainActivity", "handleCarAction NAVIGATE: $query")
                     val navUri = Uri.parse("google.navigation:q=${Uri.encode(query)}")
-                    val mapsIntent = Intent(Intent.ACTION_VIEW, navUri).apply {
-                        setPackage("com.google.android.apps.maps")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    if (packageManager.resolveActivity(mapsIntent, 0) != null) {
-                        tryStartActivity(mapsIntent)
-                    } else {
+                    val mapsIntent =
+                        Intent(Intent.ACTION_VIEW, navUri).apply {
+                            setPackage("com.google.android.apps.maps")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    val launched = tryStartActivity(mapsIntent)
+                    if (!launched) {
                         val geoUri = Uri.parse("geo:0,0?q=${Uri.encode(query)}")
                         val genericIntent = Intent(Intent.ACTION_VIEW, geoUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         tryStartActivity(genericIntent)
@@ -632,20 +675,38 @@ class MainActivity : ComponentActivity() {
                 val track = action.trackQuery?.takeIf { it.isNotBlank() }
                 if (track != null) {
                     Log.i("MainActivity", "handleCarAction CONTROL_MUSIC play track: $track")
-                    val spotifyIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
-                        setPackage("com.spotify.music")
-                        putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
-                        putExtra(SearchManager.QUERY, track)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    if (packageManager.resolveActivity(spotifyIntent, 0) != null) {
-                        tryStartActivity(spotifyIntent)
-                    } else {
-                        val genericMediaIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                    val spotifyIntent =
+                        Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                            setPackage("com.spotify.music")
                             putExtra(SearchManager.QUERY, track)
+                            putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+                            putExtra("autostart", true)
+                            putExtra("android.intent.extra.START_PLAYBACK", true)
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
+                    val launched = tryStartActivity(spotifyIntent)
+                    if (!launched) {
+                        val genericMediaIntent =
+                            Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                                putExtra(SearchManager.QUERY, track)
+                                putExtra("autostart", true)
+                                putExtra("android.intent.extra.START_PLAYBACK", true)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
                         tryStartActivity(genericMediaIntent)
+                    }
+
+                    // Auto-play trigger: Spotify membuka halaman artis/lagu (misal: Dewa 19),
+                    // lalu kirim pulsa KEYCODE_MEDIA_PLAY agar musik langsung berputar tanpa perlu sentuh layar
+                    lifecycleScope.launch {
+                        kotlinx.coroutines.delay(1200L)
+                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+                        kotlinx.coroutines.delay(1000L)
+                        // Nudge kedua untuk cold-start Spotify
+                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
                     }
                 } else {
                     val keyEventCode =

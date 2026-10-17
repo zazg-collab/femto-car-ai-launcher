@@ -32,10 +32,11 @@ internal data class CarAssistantRequest(
 
 @Serializable
 internal data class CarActionPayload(
-    val type: String, // "NAVIGATE", "CONTROL_MUSIC"
+    val type: String, // "NAVIGATE", "CONTROL_MUSIC", "OPEN_APP"
     val query: String? = null,
     val musicCommand: String? = null,
     val trackQuery: String? = null,
+    val appName: String? = null,
 )
 
 @Serializable
