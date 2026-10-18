@@ -80,30 +80,50 @@ internal class VoiceRecognizer(
 
     override fun start() {
         if (!isAvailable) return
-        val active = recognizer ?: SpeechRecognizer.createSpeechRecognizer(appContext).also {
-            it.setRecognitionListener(listener)
-            recognizer = it
+        destroyRecognizer()
+
+        try {
+            val fresh =
+                SpeechRecognizer.createSpeechRecognizer(appContext).also {
+                    it.setRecognitionListener(listener)
+                    recognizer = it
+                }
+            _state.value = VoiceState.Listening(partial = "")
+            fresh.startListening(recognizerIntent())
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal menginisialisasi fresh SpeechRecognizer: ${e.message}", e)
+            _state.value = VoiceState.Failed(messageRes = R.string.assistant_voice_error_generic)
         }
-        _state.value = VoiceState.Listening(partial = "")
-        active.startListening(recognizerIntent())
     }
 
     override fun stop() {
-        recognizer?.stopListening()
+        try {
+            recognizer?.stopListening()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping SpeechRecognizer: ${e.message}")
+        }
     }
 
     override fun reset() {
         if (isAvailable) {
-            // Park the engine before the next start(): after onError some OEM
-            // recognizers silently no-op on a reused instance unless cancelled.
-            recognizer?.cancel()
+            destroyRecognizer()
             _state.value = VoiceState.Idle
         }
     }
 
     override fun destroy() {
-        recognizer?.destroy()
-        recognizer = null
+        destroyRecognizer()
+    }
+
+    private fun destroyRecognizer() {
+        try {
+            recognizer?.cancel()
+            recognizer?.destroy()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error destroying SpeechRecognizer: ${e.message}")
+        } finally {
+            recognizer = null
+        }
     }
 
     private fun recognizerIntent(): Intent =
@@ -114,6 +134,7 @@ internal class VoiceRecognizer(
             putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("id-ID", "en-US"))
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, appContext.packageName)
         }
 
     private val listener =
@@ -137,7 +158,7 @@ internal class VoiceRecognizer(
             override fun onError(error: Int) {
                 // messageFor collapses codes into three strings; keep the raw
                 // platform code for diagnosis.
-                Log.w(TAG, "speech recognition error=$error")
+                Log.w(TAG, "speech recognition error=$error (${errorName(error)})")
                 _state.value = VoiceState.Failed(messageRes = messageFor(error))
             }
 
@@ -169,5 +190,24 @@ internal class VoiceRecognizer(
             -> R.string.assistant_voice_error_network
 
             else -> R.string.assistant_voice_error_generic
+        }
+
+    internal fun errorName(error: Int): String =
+        when (error) {
+            SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
+            SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS"
+            SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK"
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT"
+            SpeechRecognizer.ERROR_NO_MATCH -> "ERROR_NO_MATCH"
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
+            SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER"
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT"
+            SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "ERROR_TOO_MANY_REQUESTS"
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "ERROR_SERVER_DISCONNECTED"
+            SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "ERROR_LANGUAGE_NOT_SUPPORTED"
+            SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "ERROR_LANGUAGE_UNAVAILABLE"
+            SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT -> "ERROR_CANNOT_CHECK_SUPPORT"
+            else -> "ERROR_UNKNOWN($error)"
         }
 }

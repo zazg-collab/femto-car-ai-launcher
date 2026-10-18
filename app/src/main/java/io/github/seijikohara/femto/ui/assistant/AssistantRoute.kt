@@ -5,6 +5,7 @@ import android.app.Application
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
@@ -32,6 +33,13 @@ internal fun AssistantRoute(
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) viewModel.onAction(AssistantAction.StartListening)
         }
+
+    // Pastikan speech recognition dihentikan saat layar / dialog asisten ditutup
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.onAction(AssistantAction.StopListening)
+        }
+    }
 
     // Otomatis mulai merekam saat sheet terbuka jika permission sudah ada
     LaunchedEffect(Unit) {
