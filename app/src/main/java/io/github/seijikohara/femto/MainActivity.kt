@@ -4,15 +4,19 @@ import android.Manifest
 import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
 import android.text.format.DateFormat
@@ -59,6 +63,7 @@ import io.github.seijikohara.femto.data.fonts.FontSlot
 import io.github.seijikohara.femto.data.location.LocationGraph
 import io.github.seijikohara.femto.data.location.hasCoarseLocationPermission
 import io.github.seijikohara.femto.data.location.hasFineLocationPermission
+import io.github.seijikohara.femto.data.music.MusicSessionListenerService
 import io.github.seijikohara.femto.data.places.PlaceTarget
 import io.github.seijikohara.femto.data.places.geoCentreUri
 import io.github.seijikohara.femto.data.places.geoHandoffUri
@@ -84,7 +89,9 @@ import io.github.seijikohara.femto.ui.settings.SettingsDocument
 import io.github.seijikohara.femto.ui.settings.SettingsSheet
 import io.github.seijikohara.femto.ui.theme.FemtoTheme
 import io.github.seijikohara.femto.ui.theme.buildFontFamily
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -679,9 +686,12 @@ class MainActivity : ComponentActivity() {
                         Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
                             setPackage("com.spotify.music")
                             putExtra(SearchManager.QUERY, track)
-                            putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+                            putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE)
+                            putExtra(MediaStore.EXTRA_MEDIA_ARTIST, track)
+                            putExtra(MediaStore.EXTRA_MEDIA_TITLE, track)
                             putExtra("autostart", true)
                             putExtra("android.intent.extra.START_PLAYBACK", true)
+                            putExtra(Intent.EXTRA_REFERRER, Uri.parse("android-app://$packageName"))
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                     val launched = tryStartActivity(spotifyIntent)
@@ -689,25 +699,22 @@ class MainActivity : ComponentActivity() {
                         val genericMediaIntent =
                             Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
                                 putExtra(SearchManager.QUERY, track)
+                                putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE)
+                                putExtra(MediaStore.EXTRA_MEDIA_ARTIST, track)
+                                putExtra(MediaStore.EXTRA_MEDIA_TITLE, track)
                                 putExtra("autostart", true)
                                 putExtra("android.intent.extra.START_PLAYBACK", true)
+                                putExtra(Intent.EXTRA_REFERRER, Uri.parse("android-app://$packageName"))
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
                         tryStartActivity(genericMediaIntent)
                     }
 
-                    // Auto-play trigger: Spotify membuka halaman artis/lagu (misal: Dewa 19),
-                    // lalu kirim pulsa KEYCODE_MEDIA_PLAY agar musik langsung berputar tanpa perlu sentuh layar
-                    lifecycleScope.launch {
-                        kotlinx.coroutines.delay(1200L)
-                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
-                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
-                        kotlinx.coroutines.delay(1000L)
-                        // Nudge kedua untuk cold-start Spotify
-                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
-                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
-                    }
+                    // Multi-layer auto-play trigger:
+                    // 1) Directed ACTION_MEDIA_BUTTON pulses to Spotify's receiver
+                    // 2) TransportControls playFromSearch & play on active MediaSession
+                    // 3) Polling window over ~5s to ensure cold start & warm start both engage immediately
+                    triggerMusicAutoPlay(track)
                 } else {
                     val keyEventCode =
                         when (action.musicCommand) {
@@ -717,9 +724,96 @@ class MainActivity : ComponentActivity() {
                             else -> null
                         }
                     keyEventCode?.let { code ->
-                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
-                        audioManager?.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+                        sendDirectedMediaKey(code)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun sendDirectedMediaKey(keyCode: Int) {
+        val eventTime = SystemClock.uptimeMillis()
+        val downEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, keyCode, 0)
+        val upEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, keyCode, 0)
+
+        listOf("com.spotify.music", "com.spotify.lite").forEach { pkg ->
+            val downIntent =
+                Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    setPackage(pkg)
+                    putExtra(Intent.EXTRA_KEY_EVENT, downEvent)
+                }
+            val upIntent =
+                Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    setPackage(pkg)
+                    putExtra(Intent.EXTRA_KEY_EVENT, upEvent)
+                }
+            runCatching { sendOrderedBroadcast(downIntent, null) }
+            runCatching { sendOrderedBroadcast(upIntent, null) }
+        }
+
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        runCatching {
+            audioManager?.dispatchMediaKeyEvent(downEvent)
+            audioManager?.dispatchMediaKeyEvent(upEvent)
+        }
+    }
+
+    private fun triggerMusicAutoPlay(track: String) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            val sessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
+            val componentName = ComponentName(this@MainActivity, MusicSessionListenerService::class.java)
+
+            fun tryTransportControls(): Boolean {
+                return runCatching {
+                    val controllers = sessionManager?.getActiveSessions(componentName).orEmpty()
+                    val targetController =
+                        controllers.firstOrNull {
+                            it.packageName == "com.spotify.music" ||
+                                it.packageName == "com.spotify.lite" ||
+                                (((it.playbackState?.actions ?: 0L) and PlaybackState.ACTION_PLAY) != 0L)
+                        }
+                    if (targetController != null) {
+                        if (targetController.playbackState?.state == PlaybackState.STATE_PLAYING) {
+                            Log.i("MainActivity", "Music session already playing (${targetController.packageName})")
+                            return true
+                        }
+                        Log.i(
+                            "MainActivity",
+                            "Target media controller found (${targetController.packageName}), issuing playFromSearch & play",
+                        )
+                        targetController.transportControls.playFromSearch(track, null)
+                        targetController.transportControls.play()
+                        return true
+                    }
+                    false
+                }.getOrDefault(false)
+            }
+
+            // Immediately attempt transport control if already warm in background
+            if (tryTransportControls()) {
+                Log.i("MainActivity", "Spotify immediate transport control engaged")
+            }
+
+            // Polling ticks over ~5 seconds to cover both warm start and cold start
+            val intervals = listOf(800L, 1200L, 1500L, 2000L)
+            for (waitMs in intervals) {
+                delay(waitMs)
+                val controllerEngaged = tryTransportControls()
+                sendDirectedMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+
+                if (controllerEngaged) {
+                    delay(500L)
+                    val confirmedPlaying =
+                        runCatching {
+                            val controllers = sessionManager?.getActiveSessions(componentName).orEmpty()
+                            controllers.any {
+                                (it.packageName == "com.spotify.music" || it.packageName == "com.spotify.lite") &&
+                                    it.playbackState?.state == PlaybackState.STATE_PLAYING
+                            }
+                        }.getOrDefault(false)
+                    if (confirmedPlaying) {
+                        Log.i("MainActivity", "Spotify confirmed PLAYING! Auto-play cycle complete.")
+                        break
                     }
                 }
             }
